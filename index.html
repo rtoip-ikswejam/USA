@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stodoła w Niecce</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-wrapper">
+        <div id="game-container">
+            <div id="sky"></div>
+            <div id="ground"></div>
+            <img id="barn" src="barn.svg" alt="Stodoła">
+            <div id="water"></div>
+            <div id="score">0%</div>
+            <div id="water-level-bar">
+                <span id="bar-text">Brak zagrożenia</span>
+            </div>
+            <div id="game-over" class="hidden">
+                <h2>Koniec Gry!</h2>
+                <p id="game-over-message"></p>
+                <button id="restart-button">Zagraj ponownie</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
