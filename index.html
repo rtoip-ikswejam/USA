@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uratuj Stodołę</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333; /* Tło poza obszarem gry */
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw; /* Będzie zmieniane przez JS dla desktopa */
+            height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB, #B0E0E6); /* Niebo */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end; /* Elementy na dole */
+        }
+
+        #water-level-indicator {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            color: white;
+            z-index: 100;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        #grass {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 10%; /* Wysokość 10% ekranu */
+            background-color: #00cc00; /* Zielona trawa */
+            z-index: 2;
+        }
+
+        #barn {
+            position: absolute;
+            bottom: 10%; /* Podłoga stodoły zaczyna się nad trawą (10% od dołu) */
+            left: 50%;
+            transform: translateX(-50%);
+            /* Szerokość i wysokość będą ustawione dynamicznie przez JS, aby dopasować SVG */
+            background-image: url('barn.svg'); /* Zewnętrzny plik SVG stodoły */
+            background-size: contain; /* Upewnia się, że SVG mieści się w elemencie */
+            background-repeat: no-repeat;
+            background-position: center bottom; /* Kluczowe: wyrównuje grafikę do dołu elementu */
+            z-index: 3;
+        }
+
+        #water {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 0; /* Początkowo bez wody */
+            background-color: rgba(65, 105, 225, 0.6); /* Przezroczysty niebieski */
+            z-index: 4;
+            transition: height 0.3s ease-out; /* Płynne podnoszenie wody */
+        }
+
+        .cloud {
+            position: absolute;
+            width: 40%; /* Rozmiar chmury - zwiększony dwukrotnie */
+            height: 20%; /* Rozmiar chmury - zwiększony dwukrotnie */
+            background-image: url('cloud.svg'); /* Zewnętrzny plik SVG chmury */
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 5;
+            cursor: pointer;
+        }
+
+        .sun {
+            position: absolute;
+            width: 15%; /* Rozmiar słońca */
+            height: 15%;
+            background-image: url('sun.svg'); /* Zewnętrzny plik SVG słońca */
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 6;
+            opacity: 0;
+            transition: opacity 0.2s ease-out;
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            font-size: 2em;
+            text-align: center;
+            z-index: 200;
+            display: none; /* Ukryte na początku */
+        }
+
+        #play-again-button {
+            padding: 15px 30px;
+            margin-top: 20px;
+            font-size: 1em;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #play-again-button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="water-level-indicator"></div>
+        <div id="grass"></div>
+        <div id="barn"></div>
+        <div id="water"></div>
+        <div id="game-over-screen">
+            <p id="game-over-text"></p>
+            <button id="play-again-button">Zagraj ponownie</button>
+        </div>
+    </div>
+
+    <script>
+        const gameContainer = document.getElementById('game-container');
+        const waterElement = document.getElementById('water');
+        const waterLevelIndicator = document.getElementById('water-level-indicator');
+        const barnElement = document.getElementById('barn');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const gameOverText = document.getElementById('game-over-text');
+        const playAgainButton = document.getElementById('play-again-button');
+
+        let waterLevel = 0; 
+        let maxWaterHeightPx; 
+        let cloudInterval = 1000; 
+        let cloudSpeed = 1; 
+        let gameRunning = false;
+        let cloudGenerationIntervalId;
+        let gameDifficultyIntervalId;
+
+        const GRASS_HEIGHT_RATIO = 0.1; 
+        const BARN_ROOF_TARGET_HEIGHT_RATIO = 0.4; 
+        const BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO = BARN_ROOF_TARGET_HEIGHT_RATIO - GRASS_HEIGHT_RATIO; 
+
+        const BARN_SVG_WIDTH_MM = 150;
+        const BARN_SVG_HEIGHT_MM = 135.114;
+        const BARN_SVG_ASPECT_RATIO = BARN_SVG_WIDTH_MM / BARN_SVG_HEIGHT_MM; 
+
+        const WATER_MAX_SCREEN_HEIGHT_RATIO = BARN_ROOF_TARGET_HEIGHT_RATIO;
+
+        const BASE_WATER_RISE_PER_CLOUD_RAIN = 0.05;
+        const BASE_WATER_RISE_PER_CLOUD_MISSED = 2;
+        const WATER_RISE_INCREASE_FACTOR = 1.21; 
+
+        const WATER_RISE_PER_CLOUD_RAIN = BASE_WATER_RISE_PER_CLOUD_RAIN * WATER_RISE_INCREASE_FACTOR;
+        const WATER_RISE_PER_CLOUD_MISSED = BASE_WATER_RISE_PER_CLOUD_MISSED * WATER_RISE_INCREASE_FACTOR;
+        const WATER_DROP_PER_CLICK = 5; 
+        const SUN_DURATION = 500; 
+
+        const CLOUD_WIDTH_PERCENT = 40; 
+        // Nowa stała: wysokość chmury wyrażona w procentach kontenera gry (z CSS)
+        const CLOUD_HEIGHT_PERCENT = 20;
+
+        function resizeGameArea() {
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            if (viewportWidth / viewportHeight > 9 / 16) { 
+                gameContainer.style.width = `${viewportHeight * (9 / 16)}px`;
+                gameContainer.style.height = `${viewportHeight}px`;
+            } else {
+                gameContainer.style.width = '100vw';
+                gameContainer.style.height = '100vh';
+            }
+
+            const barnTargetHeightPx = BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO * gameContainer.offsetHeight;
+            barnElement.style.height = `${barnTargetHeightPx}px`;
+            barnElement.style.width = `${barnTargetHeightPx * BARN_SVG_ASPECT_RATIO}px`;
+            barnElement.style.bottom = `${GRASS_HEIGHT_RATIO * gameContainer.offsetHeight}px`;
+
+            maxWaterHeightPx = gameContainer.offsetHeight * WATER_MAX_SCREEN_HEIGHT_RATIO;
+            updateWaterLevelDisplay();
+        }
+
+        function updateWaterLevelDisplay() {
+            const waterHeightPx = (waterLevel / 100) * maxWaterHeightPx;
+            waterElement.style.height = `${waterHeightPx}px`;
+
+            let indicatorText = "";
+            let indicatorColor = "";
+
+            if (waterLevel <= 25) {
+                indicatorText = "Brak zagrożenia";
+                indicatorColor = "#28a745"; 
+            } else if (waterLevel <= 50) {
+                indicatorText = "Stopień 1";
+                indicatorColor = "#ffc107"; 
+            } else if (waterLevel <= 75) {
+                indicatorText = "Stopień 2";
+                indicatorColor = "#fd7e14"; 
+            } else {
+                indicatorText = "Stopień 3";
+                indicatorColor = "#dc3545"; 
+            }
+
+            waterLevelIndicator.textContent = `Poziom wody: ${indicatorText} (${Math.round(waterLevel)}%)`;
+            waterLevelIndicator.style.backgroundColor = indicatorColor;
+
+            if (waterLevel >= 100) {
+                endGame(false); 
+            }
+        }
+
+        function createCloud() {
+            if (!gameRunning) return;
+
+            const cloud = document.createElement('div');
+            cloud.classList.add('cloud');
+            const startSide = Math.random() < 0.5 ? 'left' : 'right';
+            
+            let startPosition;
+            if (startSide === 'left') {
+                startPosition = -CLOUD_WIDTH_PERCENT; 
+            } else {
+                startPosition = 100; 
+            }
+            cloud.style.left = `${startPosition}%`;
+
+            const indicatorHeightPx = waterLevelIndicator.offsetHeight + 10; 
+            const barnRoofTopPx = gameContainer.offsetHeight * (1 - BARN_ROOF_TARGET_HEIGHT_RATIO); 
+            
+            const minCloudTopPx = indicatorHeightPx;
+            // Poprawione obliczanie wysokości wizualnej chmury w pikselach
+            const cloudVisualHeightPx = gameContainer.offsetHeight * (CLOUD_HEIGHT_PERCENT / 100); 
+            const maxCloudTopPx = barnRoofTopPx - cloudVisualHeightPx - 5; 
+            
+            const effectiveMinCloudTopPx = Math.max(minCloudTopPx, 0);
+            const effectiveMaxCloudTopPx = Math.min(maxCloudTopPx, gameContainer.offsetHeight - cloudVisualHeightPx);
+
+            let randomTopPx;
+            if (effectiveMaxCloudTopPx > effectiveMinCloudTopPx) {
+                randomTopPx = Math.random() * (effectiveMaxCloudTopPx - effectiveMinCloudTopPx) + effectiveMinCloudTopPx;
+            } else {
+                randomTopPx = effectiveMinCloudTopPx; 
+            }
+            
+            cloud.style.top = `${(randomTopPx / gameContainer.offsetHeight) * 100}%`;
+
+            gameContainer.appendChild(cloud);
+
+            let currentPosition = startPosition;
+            const direction = startSide === 'left' ? 1 : -1;
+            const moveStep = cloudSpeed * 0.1; 
+
+            let animationFrameId; 
+            const moveCloud = () => {
+                if (!gameRunning) {
+                    cancelAnimationFrame(animationFrameId); 
+                    return;
+                }
+                currentPosition += direction * moveStep;
+                cloud.style.left = `${currentPosition}%`;
+
+                const cloudRightEdge = currentPosition + CLOUD_WIDTH_PERCENT;
+                if ((direction === 1 && currentPosition > 100) || (direction === -1 && cloudRightEdge < 0)) {
+                    cloud.remove();
+                    waterLevel = Math.min(100, waterLevel + WATER_RISE_PER_CLOUD_MISSED); 
+                    updateWaterLevelDisplay();
+                    clearInterval(rainInterval); 
+                } else {
+                    animationFrameId = requestAnimationFrame(moveCloud);
+                }
+            };
+
+            const rainInterval = setInterval(() => {
+                if (cloud.parentElement && gameRunning) { 
+                    waterLevel = Math.min(100, waterLevel + WATER_RISE_PER_CLOUD_RAIN);
+                    updateWaterLevelDisplay();
+                } else {
+                    clearInterval(rainInterval);
+                }
+            }, 200); 
+
+            cloud.addEventListener('click', (event) => {
+                if (!gameRunning) return;
+                const rect = gameContainer.getBoundingClientRect();
+                const clickX = event.clientX - rect.left;
+                const clickY = event.clientY - rect.top;
+
+                cloud.remove();
+                clearInterval(rainInterval);
+                cancelAnimationFrame(animationFrameId); 
+                showSun(clickX, clickY); 
+            });
+
+            animationFrameId = requestAnimationFrame(moveCloud);
+        }
+
+        function showSun(x, y) {
+            const sun = document.createElement('div');
+            sun.classList.add('sun');
+            gameContainer.appendChild(sun); 
+
+            setTimeout(() => {
+                sun.style.left = `${x - (sun.offsetWidth / 2)}px`;
+                sun.style.top = `${y - (sun.offsetHeight / 2)}px`;
+                sun.style.opacity = 1; 
+            }, 0); 
+
+            setTimeout(() => {
+                sun.style.opacity = 0;
+                setTimeout(() => sun.remove(), 200); 
+            }, SUN_DURATION);
+        }
+
+        function increaseDifficulty() {
+            if (!gameRunning) return;
+            cloudInterval = Math.max(200, cloudInterval * 0.75); 
+            cloudSpeed += 0.1; 
+            clearInterval(cloudGenerationIntervalId);
+            cloudGenerationIntervalId = setInterval(createCloud, cloudInterval);
+            console.log(`Zwiększono trudność: interwał chmur ${cloudInterval}ms, prędkość chmur ${cloudSpeed}`);
+        }
+
+        function startGame() {
+            waterLevel = 0;
+            cloudInterval = 1000;
+            cloudSpeed = 1;
+            gameRunning = true;
+            gameOverScreen.style.display = 'none';
+            updateWaterLevelDisplay();
+
+            cloudGenerationIntervalId = setInterval(createCloud, cloudInterval);
+            gameDifficultyIntervalId = setInterval(increaseDifficulty, 60000);
+            waterElement.addEventListener('click', handleWaterClick);
+        }
+
+        function handleWaterClick(event) {
+            if (!gameRunning) return;
+            if (event.target === waterElement) { 
+                waterLevel = Math.max(0, waterLevel - WATER_DROP_PER_CLICK);
+                updateWaterLevelDisplay();
+                const rect = gameContainer.getBoundingClientRect();
+                const clickX = event.clientX - rect.left;
+                const clickY = event.clientY - rect.top;
+                showSun(clickX, clickY); 
+            }
+        }
+
+        function endGame(won) {
+            gameRunning = false;
+            clearInterval(cloudGenerationIntervalId);
+            clearInterval(gameDifficultyIntervalId);
+            waterElement.removeEventListener('click', handleWaterClick);
+
+            document.querySelectorAll('.cloud').forEach(cloud => {
+                cloud.remove();
+            });
+            document.querySelectorAll('.sun').forEach(sun => sun.remove());
+
+
+            if (won) {
+                gameOverText.textContent = "Gratulacje! Udało Ci się uratować stodołę!";
+                playAgainButton.textContent = "Zagraj ponownie";
+            } else {
+                gameOverText.textContent = "Niestety, stodoła została zatopiona!";
+                playAgainButton.textContent = "Spróbuj ponownie";
+            }
+            gameOverScreen.style.display = 'flex';
+        }
+
+        playAgainButton.addEventListener('click', startGame);
+
+        window.addEventListener('resize', resizeGameArea);
+        window.onload = () => {
+            resizeGameArea();
+            startGame();
+        };
+
+    </script>
+</body>
+</html>
