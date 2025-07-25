@@ -2,11 +2,13 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Uratuj Stodołę</title>
     <style>
         body {
             margin: 0;
+            /* Użycie env(safe-area-inset-bottom) dla marginesu na dole */
+            padding-bottom: env(safe-area-inset-bottom, 0px); /* Domyślnie 0px, jeśli nieobsługiwane */
             overflow: hidden;
             display: flex;
             justify-content: center;
@@ -24,11 +26,14 @@
             display: flex;
             flex-direction: column;
             justify-content: flex-end; /* Elementy na dole */
+            /* Upewnienie się, że kontener gry uwzględnia bezpieczne obszary */
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            box-sizing: border-box; /* Ważne, aby padding był wewnątrz height */
         }
 
         #water-level-indicator {
             position: absolute;
-            top: 10px;
+            top: env(safe-area-inset-top, 10px); /* Dostosuj pozycję do góry ekranu */
             left: 50%;
             transform: translateX(-50%);
             padding: 8px 15px;
@@ -45,21 +50,20 @@
             position: absolute;
             bottom: 0;
             width: 100%;
-            height: 10%; /* Wysokość 10% ekranu */
+            height: 10%; /* Początkowa wysokość, będzie skorygowana przez JS */
             background-color: #00cc00; /* Zielona trawa */
             z-index: 2;
         }
 
         #barn {
             position: absolute;
-            bottom: 10%; /* Podłoga stodoły zaczyna się nad trawą (10% od dołu) */
+            /* bottom będzie teraz obliczany z uwzględnieniem bezpiecznej strefy */
             left: 50%;
             transform: translateX(-50%);
-            /* Szerokość i wysokość będą ustawione dynamicznie przez JS, aby dopasować SVG */
-            background-image: url('barn.svg'); /* Zewnętrzny plik SVG stodoły */
-            background-size: contain; /* Upewnia się, że SVG mieści się w elemencie */
+            background-image: url('barn.svg'); 
+            background-size: contain; 
             background-repeat: no-repeat;
-            background-position: center bottom; /* Kluczowe: wyrównuje grafikę do dołu elementu */
+            background-position: center bottom; 
             z-index: 3;
         }
 
@@ -70,14 +74,14 @@
             height: 0; /* Początkowo bez wody */
             background-color: rgba(65, 105, 225, 0.6); /* Przezroczysty niebieski */
             z-index: 4;
-            transition: height 0.3s ease-out; /* Płynne podnoszenie wody */
+            transition: height 0.3s ease-out; 
         }
 
         .cloud {
             position: absolute;
-            width: 40%; /* Rozmiar chmury - zwiększony dwukrotnie */
-            height: 20%; /* Rozmiar chmury - zwiększony dwukrotnie */
-            background-image: url('cloud.svg'); /* Zewnętrzny plik SVG chmury */
+            width: 40%; 
+            height: 20%; 
+            background-image: url('cloud.svg'); 
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
@@ -87,9 +91,9 @@
 
         .sun {
             position: absolute;
-            width: 15%; /* Rozmiar słońca */
+            width: 15%; 
             height: 15%;
-            background-image: url('sun.svg'); /* Zewnętrzny plik SVG słońca */
+            background-image: url('sun.svg'); 
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
@@ -114,7 +118,7 @@
             font-size: 2em;
             text-align: center;
             z-index: 200;
-            display: none; /* Ukryte na początku */
+            display: none; 
         }
 
         #play-again-button {
@@ -154,6 +158,7 @@
         const gameOverScreen = document.getElementById('game-over-screen');
         const gameOverText = document.getElementById('game-over-text');
         const playAgainButton = document.getElementById('play-again-button');
+        const grassElement = document.getElementById('grass'); // Dodajemy odwołanie do trawy
 
         let waterLevel = 0; 
         let maxWaterHeightPx; 
@@ -163,15 +168,18 @@
         let cloudGenerationIntervalId;
         let gameDifficultyIntervalId;
 
-        const GRASS_HEIGHT_RATIO = 0.1; 
+        // Stała wysokość trawy jako procent wysokości dostępnego obszaru gry (po odjęciu safe area)
+        const GRASS_VISUAL_HEIGHT_RATIO = 0.1; 
         const BARN_ROOF_TARGET_HEIGHT_RATIO = 0.4; 
-        const BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO = BARN_ROOF_TARGET_HEIGHT_RATIO - GRASS_HEIGHT_RATIO; 
+        // BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO będzie teraz obliczane dynamicznie, bo trawa ma zmienną wysokość
+        
 
         const BARN_SVG_WIDTH_MM = 150;
         const BARN_SVG_HEIGHT_MM = 135.114;
         const BARN_SVG_ASPECT_RATIO = BARN_SVG_WIDTH_MM / BARN_SVG_HEIGHT_MM; 
 
-        const WATER_MAX_SCREEN_HEIGHT_RATIO = BARN_ROOF_TARGET_HEIGHT_RATIO;
+        // WATER_MAX_SCREEN_HEIGHT_RATIO będzie teraz bazować na nowej wysokości barn
+        
 
         const BASE_WATER_RISE_PER_CLOUD_RAIN = 0.05;
         const BASE_WATER_RISE_PER_CLOUD_MISSED = 2;
@@ -183,27 +191,62 @@
         const SUN_DURATION = 500; 
 
         const CLOUD_WIDTH_PERCENT = 40; 
-        // Nowa stała: wysokość chmury wyrażona w procentach kontenera gry (z CSS)
         const CLOUD_HEIGHT_PERCENT = 20;
+
+        // Funkcja do pobierania wartości safe-area-inset-bottom
+        function getSafeAreaInsetBottom() {
+            // Tworzymy tymczasowy element, aby odczytać zmienną CSS
+            const tempDiv = document.createElement('div');
+            tempDiv.style.position = 'absolute';
+            tempDiv.style.bottom = '0';
+            tempDiv.style.height = '1px';
+            tempDiv.style.width = '1px';
+            tempDiv.style.paddingBottom = 'env(safe-area-inset-bottom, 0px)';
+            document.body.appendChild(tempDiv);
+            const padding = parseFloat(getComputedStyle(tempDiv).paddingBottom);
+            document.body.removeChild(tempDiv);
+            return padding;
+        }
 
         function resizeGameArea() {
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
+            const safeAreaBottom = getSafeAreaInsetBottom(); // Pobieramy safe area
 
+            // Ustawienie głównego kontenera gry
+            let containerWidth, containerHeight;
             if (viewportWidth / viewportHeight > 9 / 16) { 
-                gameContainer.style.width = `${viewportHeight * (9 / 16)}px`;
-                gameContainer.style.height = `${viewportHeight}px`;
+                containerHeight = viewportHeight;
+                containerWidth = viewportHeight * (9 / 16);
             } else {
-                gameContainer.style.width = '100vw';
-                gameContainer.style.height = '100vh';
+                containerWidth = viewportWidth;
+                containerHeight = viewportHeight;
             }
 
-            const barnTargetHeightPx = BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO * gameContainer.offsetHeight;
-            barnElement.style.height = `${barnTargetHeightPx}px`;
-            barnElement.style.width = `${barnTargetHeightPx * BARN_SVG_ASPECT_RATIO}px`;
-            barnElement.style.bottom = `${GRASS_HEIGHT_RATIO * gameContainer.offsetHeight}px`;
+            gameContainer.style.width = `${containerWidth}px`;
+            // Ważne: Odlicz safeAreaBottom od wysokości kontenera gry,
+            // aby faktyczna przestrzeń do rysowania była bezpieczna
+            gameContainer.style.height = `${containerHeight - safeAreaBottom}px`;
 
-            maxWaterHeightPx = gameContainer.offsetHeight * WATER_MAX_SCREEN_HEIGHT_RATIO;
+            // Obliczamy nową wysokość trawy
+            const grassHeightPx = gameContainer.offsetHeight * GRASS_VISUAL_HEIGHT_RATIO;
+            grassElement.style.height = `${grassHeightPx}px`;
+            grassElement.style.bottom = `0px`; // Trawa zawsze na samym dole kontenera gry
+
+            // Obliczamy rzeczywistą wysokość stodoły w pikselach
+            // Nowa wysokość od podłogi do dachu stodoły
+            const barnFloorToRoofHeightPx = BARN_ROOF_TARGET_HEIGHT_RATIO * gameContainer.offsetHeight - grassHeightPx;
+            
+            // Ustawienie wysokości i szerokości elementu stodoły (div#barn)
+            barnElement.style.height = `${barnFloorToRoofHeightPx}px`;
+            barnElement.style.width = `${barnFloorToRoofHeightPx * BARN_SVG_ASPECT_RATIO}px`;
+            
+            // Stodoła zaczyna się dokładnie nad trawą
+            barnElement.style.bottom = `${grassHeightPx}px`;
+
+            // Maksymalny poziom wody to wysokość całej gry (bez bezpiecznego obszaru)
+            maxWaterHeightPx = gameContainer.offsetHeight * BARN_ROOF_TARGET_HEIGHT_RATIO; // Woda do 40% wysokości gry
+            
             updateWaterLevelDisplay();
         }
 
@@ -255,7 +298,6 @@
             const barnRoofTopPx = gameContainer.offsetHeight * (1 - BARN_ROOF_TARGET_HEIGHT_RATIO); 
             
             const minCloudTopPx = indicatorHeightPx;
-            // Poprawione obliczanie wysokości wizualnej chmury w pikselach
             const cloudVisualHeightPx = gameContainer.offsetHeight * (CLOUD_HEIGHT_PERCENT / 100); 
             const maxCloudTopPx = barnRoofTopPx - cloudVisualHeightPx - 5; 
             
