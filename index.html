@@ -7,33 +7,34 @@
     <style>
         body {
             margin: 0;
-            /* Użycie env(safe-area-inset-bottom) dla marginesu na dole */
-            padding-bottom: env(safe-area-inset-bottom, 0px); /* Domyślnie 0px, jeśli nieobsługiwane */
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            height: 100vh; /* Pełna wysokość viewportu */
             background-color: #333; /* Tło poza obszarem gry */
+            /* Usuwamy padding-bottom, bo JS będzie liczyć wysokość */
         }
 
         #game-container {
             position: relative;
             width: 100vw; /* Będzie zmieniane przez JS dla desktopa */
-            height: 100vh;
+            height: 100vh; /* Tymczasowa wysokość, będzie ustawiona przez JS */
             background: linear-gradient(to bottom, #87CEEB, #B0E0E6); /* Niebo */
             overflow: hidden;
             display: flex;
             flex-direction: column;
             justify-content: flex-end; /* Elementy na dole */
-            /* Upewnienie się, że kontener gry uwzględnia bezpieczne obszary */
-            padding-bottom: env(safe-area-inset-bottom, 0px);
-            box-sizing: border-box; /* Ważne, aby padding był wewnątrz height */
+            box-sizing: border-box; /* Ważne, aby wszelki wewnętrzny padding był wliczony w wysokość */
+            /* Usuwamy padding-bottom z CSS, bo JS to obsłuży */
         }
 
         #water-level-indicator {
             position: absolute;
-            top: env(safe-area-inset-top, 10px); /* Dostosuj pozycję do góry ekranu */
+            top: 10px; /* Domyślna pozycja */
+            /* Używamy tutaj env(safe-area-inset-top) dla górnego notcha, jeśli jest wspierany.
+               Jeśli nie, 10px będzie domyślne, co jest zazwyczaj OK. */
+            top: max(10px, env(safe-area-inset-top, 10px));
             left: 50%;
             transform: translateX(-50%);
             padding: 8px 15px;
@@ -57,7 +58,6 @@
 
         #barn {
             position: absolute;
-            /* bottom będzie teraz obliczany z uwzględnieniem bezpiecznej strefy */
             left: 50%;
             transform: translateX(-50%);
             background-image: url('barn.svg'); 
@@ -71,8 +71,8 @@
             position: absolute;
             bottom: 0;
             width: 100%;
-            height: 0; /* Początkowo bez wody */
-            background-color: rgba(65, 105, 225, 0.6); /* Przezroczysty niebieski */
+            height: 0; 
+            background-color: rgba(65, 105, 225, 0.6); 
             z-index: 4;
             transition: height 0.3s ease-out; 
         }
@@ -158,7 +158,7 @@
         const gameOverScreen = document.getElementById('game-over-screen');
         const gameOverText = document.getElementById('game-over-text');
         const playAgainButton = document.getElementById('play-again-button');
-        const grassElement = document.getElementById('grass'); // Dodajemy odwołanie do trawy
+        const grassElement = document.getElementById('grass');
 
         let waterLevel = 0; 
         let maxWaterHeightPx; 
@@ -168,19 +168,13 @@
         let cloudGenerationIntervalId;
         let gameDifficultyIntervalId;
 
-        // Stała wysokość trawy jako procent wysokości dostępnego obszaru gry (po odjęciu safe area)
         const GRASS_VISUAL_HEIGHT_RATIO = 0.1; 
         const BARN_ROOF_TARGET_HEIGHT_RATIO = 0.4; 
-        // BARN_VISUAL_HEIGHT_ON_SCREEN_RATIO będzie teraz obliczane dynamicznie, bo trawa ma zmienną wysokość
         
-
         const BARN_SVG_WIDTH_MM = 150;
         const BARN_SVG_HEIGHT_MM = 135.114;
         const BARN_SVG_ASPECT_RATIO = BARN_SVG_WIDTH_MM / BARN_SVG_HEIGHT_MM; 
-
-        // WATER_MAX_SCREEN_HEIGHT_RATIO będzie teraz bazować na nowej wysokości barn
         
-
         const BASE_WATER_RISE_PER_CLOUD_RAIN = 0.05;
         const BASE_WATER_RISE_PER_CLOUD_MISSED = 2;
         const WATER_RISE_INCREASE_FACTOR = 1.21; 
@@ -193,59 +187,38 @@
         const CLOUD_WIDTH_PERCENT = 40; 
         const CLOUD_HEIGHT_PERCENT = 20;
 
-        // Funkcja do pobierania wartości safe-area-inset-bottom
-        function getSafeAreaInsetBottom() {
-            // Tworzymy tymczasowy element, aby odczytać zmienną CSS
-            const tempDiv = document.createElement('div');
-            tempDiv.style.position = 'absolute';
-            tempDiv.style.bottom = '0';
-            tempDiv.style.height = '1px';
-            tempDiv.style.width = '1px';
-            tempDiv.style.paddingBottom = 'env(safe-area-inset-bottom, 0px)';
-            document.body.appendChild(tempDiv);
-            const padding = parseFloat(getComputedStyle(tempDiv).paddingBottom);
-            document.body.removeChild(tempDiv);
-            return padding;
-        }
-
         function resizeGameArea() {
             const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const safeAreaBottom = getSafeAreaInsetBottom(); // Pobieramy safe area
+            // Użyj visualViewport.height dla najbardziej dokładnej wysokości widocznego obszaru
+            // (uwzględnia paski nawigacyjne i klawiatury ekranowe)
+            const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
-            // Ustawienie głównego kontenera gry
             let containerWidth, containerHeight;
+
+            // Logika skalowania dla desktopa (zachowanie proporcji 9/16)
             if (viewportWidth / viewportHeight > 9 / 16) { 
                 containerHeight = viewportHeight;
                 containerWidth = viewportHeight * (9 / 16);
-            } else {
+            } else { // Dla mobile (lub węższych ekranów desktopowych)
                 containerWidth = viewportWidth;
                 containerHeight = viewportHeight;
             }
 
             gameContainer.style.width = `${containerWidth}px`;
-            // Ważne: Odlicz safeAreaBottom od wysokości kontenera gry,
-            // aby faktyczna przestrzeń do rysowania była bezpieczna
-            gameContainer.style.height = `${containerHeight - safeAreaBottom}px`;
+            gameContainer.style.height = `${containerHeight}px`; // Teraz containerHeight to już "bezpieczna" wysokość
 
-            // Obliczamy nową wysokość trawy
             const grassHeightPx = gameContainer.offsetHeight * GRASS_VISUAL_HEIGHT_RATIO;
             grassElement.style.height = `${grassHeightPx}px`;
-            grassElement.style.bottom = `0px`; // Trawa zawsze na samym dole kontenera gry
+            grassElement.style.bottom = `0px`; 
 
-            // Obliczamy rzeczywistą wysokość stodoły w pikselach
-            // Nowa wysokość od podłogi do dachu stodoły
+            // Wysokość stodoły od podłogi do dachu, dostosowana do nowej, bezpiecznej wysokości kontenera
             const barnFloorToRoofHeightPx = BARN_ROOF_TARGET_HEIGHT_RATIO * gameContainer.offsetHeight - grassHeightPx;
             
-            // Ustawienie wysokości i szerokości elementu stodoły (div#barn)
             barnElement.style.height = `${barnFloorToRoofHeightPx}px`;
             barnElement.style.width = `${barnFloorToRoofHeightPx * BARN_SVG_ASPECT_RATIO}px`;
-            
-            // Stodoła zaczyna się dokładnie nad trawą
             barnElement.style.bottom = `${grassHeightPx}px`;
 
-            // Maksymalny poziom wody to wysokość całej gry (bez bezpiecznego obszaru)
-            maxWaterHeightPx = gameContainer.offsetHeight * BARN_ROOF_TARGET_HEIGHT_RATIO; // Woda do 40% wysokości gry
+            maxWaterHeightPx = gameContainer.offsetHeight * BARN_ROOF_TARGET_HEIGHT_RATIO; 
             
             updateWaterLevelDisplay();
         }
@@ -438,7 +411,12 @@
 
         playAgainButton.addEventListener('click', startGame);
 
+        // Dodatkowe nasłuchiwanie na resize visualViewport - kluczowe dla mobilnych
         window.addEventListener('resize', resizeGameArea);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', resizeGameArea);
+        }
+
         window.onload = () => {
             resizeGameArea();
             startGame();
