@@ -5,35 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Uratuj Stodołę</title>
     <style>
+        /* Importujemy czcionkę E1234 - upewnij się, że plik czcionki jest dostępny */
+        /* Przyjmuję, że masz plik 'e1234.ttf' w folderze 'fonts' */
+        @font-face {
+            font-family: 'E1234';
+            src: url('fonts/e1234.ttf') format('truetype'),
+                 url('fonts/e1234.woff2') format('woff2'), /* Preferowany format dla nowoczesnych przeglądarek */
+                 url('fonts/e1234.woff') format('woff');   /* Alternatywny format */
+            font-weight: normal;
+            font-style: normal;
+        }
+
         body {
             margin: 0;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh; /* Pełna wysokość viewportu */
+            height: 100vh;
             background-color: #333; /* Tło poza obszarem gry */
-            /* Usuwamy padding-bottom, bo JS będzie liczyć wysokość */
         }
 
         #game-container {
             position: relative;
-            width: 100vw; /* Będzie zmieniane przez JS dla desktopa */
-            height: 100vh; /* Tymczasowa wysokość, będzie ustawiona przez JS */
+            width: 100vw; 
+            height: 100vh; 
             background: linear-gradient(to bottom, #87CEEB, #B0E0E6); /* Niebo */
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end; /* Elementy na dole */
-            box-sizing: border-box; /* Ważne, aby wszelki wewnętrzny padding był wliczony w wysokość */
-            /* Usuwamy padding-bottom z CSS, bo JS to obsłuży */
+            justify-content: flex-end; 
+            box-sizing: border-box; 
         }
 
         #water-level-indicator {
             position: absolute;
-            top: 10px; /* Domyślna pozycja */
-            /* Używamy tutaj env(safe-area-inset-top) dla górnego notcha, jeśli jest wspierany.
-               Jeśli nie, 10px będzie domyślne, co jest zazwyczaj OK. */
             top: max(10px, env(safe-area-inset-top, 10px));
             left: 50%;
             transform: translateX(-50%);
@@ -47,12 +53,31 @@
             white-space: nowrap;
         }
 
+        #game-timer {
+            position: absolute;
+            top: calc(max(10px, env(safe-area-inset-top, 10px)) + 50px); 
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px; 
+            border-radius: 8px; 
+            font-family: 'E1234', monospace; /* Nowa, własna czcionka */
+            font-size: 2.5em; /* Nieco większy rozmiar dla lepszego efektu */
+            font-weight: bold;
+            color: #c0f0c0; /* Jasnozielony kolor cyfr dla efektu LCD */
+            background-color: #222; 
+            border: 2px solid #555; 
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.4); 
+            z-index: 100;
+            text-align: center;
+            white-space: nowrap;
+        }
+
         #grass {
             position: absolute;
             bottom: 0;
             width: 100%;
-            height: 10%; /* Początkowa wysokość, będzie skorygowana przez JS */
-            background-color: #00cc00; /* Zielona trawa */
+            height: 10%; 
+            background-color: #00cc00; 
             z-index: 2;
         }
 
@@ -141,6 +166,7 @@
 <body>
     <div id="game-container">
         <div id="water-level-indicator"></div>
+        <div id="game-timer">00:00:00</div> 
         <div id="grass"></div>
         <div id="barn"></div>
         <div id="water"></div>
@@ -154,6 +180,7 @@
         const gameContainer = document.getElementById('game-container');
         const waterElement = document.getElementById('water');
         const waterLevelIndicator = document.getElementById('water-level-indicator');
+        const gameTimerElement = document.getElementById('game-timer'); 
         const barnElement = document.getElementById('barn');
         const gameOverScreen = document.getElementById('game-over-screen');
         const gameOverText = document.getElementById('game-over-text');
@@ -167,6 +194,9 @@
         let gameRunning = false;
         let cloudGenerationIntervalId;
         let gameDifficultyIntervalId;
+
+        let gameStartTime; 
+        let timerIntervalId; 
 
         const GRASS_VISUAL_HEIGHT_RATIO = 0.1; 
         const BARN_ROOF_TARGET_HEIGHT_RATIO = 0.4; 
@@ -189,29 +219,25 @@
 
         function resizeGameArea() {
             const viewportWidth = window.innerWidth;
-            // Użyj visualViewport.height dla najbardziej dokładnej wysokości widocznego obszaru
-            // (uwzględnia paski nawigacyjne i klawiatury ekranowe)
             const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
             let containerWidth, containerHeight;
 
-            // Logika skalowania dla desktopa (zachowanie proporcji 9/16)
             if (viewportWidth / viewportHeight > 9 / 16) { 
                 containerHeight = viewportHeight;
                 containerWidth = viewportHeight * (9 / 16);
-            } else { // Dla mobile (lub węższych ekranów desktopowych)
+            } else { 
                 containerWidth = viewportWidth;
                 containerHeight = viewportHeight;
             }
 
             gameContainer.style.width = `${containerWidth}px`;
-            gameContainer.style.height = `${containerHeight}px`; // Teraz containerHeight to już "bezpieczna" wysokość
+            gameContainer.style.height = `${containerHeight}px`; 
 
             const grassHeightPx = gameContainer.offsetHeight * GRASS_VISUAL_HEIGHT_RATIO;
             grassElement.style.height = `${grassHeightPx}px`;
             grassElement.style.bottom = `0px`; 
 
-            // Wysokość stodoły od podłogi do dachu, dostosowana do nowej, bezpiecznej wysokości kontenera
             const barnFloorToRoofHeightPx = BARN_ROOF_TARGET_HEIGHT_RATIO * gameContainer.offsetHeight - grassHeightPx;
             
             barnElement.style.height = `${barnFloorToRoofHeightPx}px`;
@@ -252,6 +278,24 @@
             }
         }
 
+        function updateTimerDisplay() {
+            if (!gameRunning) {
+                clearInterval(timerIntervalId);
+                return;
+            }
+            const elapsedTimeMs = Date.now() - gameStartTime;
+            const totalSeconds = Math.floor(elapsedTimeMs / 1000);
+
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+
+            const formatTwoDigits = (num) => num.toString().padStart(2, '0');
+
+            gameTimerElement.textContent = 
+                `${formatTwoDigits(hours)}:${formatTwoDigits(minutes)}:${formatTwoDigits(seconds)}`;
+        }
+
         function createCloud() {
             if (!gameRunning) return;
 
@@ -268,9 +312,10 @@
             cloud.style.left = `${startPosition}%`;
 
             const indicatorHeightPx = waterLevelIndicator.offsetHeight + 10; 
+            const timerHeightPx = gameTimerElement.offsetHeight + 10;
             const barnRoofTopPx = gameContainer.offsetHeight * (1 - BARN_ROOF_TARGET_HEIGHT_RATIO); 
             
-            const minCloudTopPx = indicatorHeightPx;
+            const minCloudTopPx = indicatorHeightPx + timerHeightPx; 
             const cloudVisualHeightPx = gameContainer.offsetHeight * (CLOUD_HEIGHT_PERCENT / 100); 
             const maxCloudTopPx = barnRoofTopPx - cloudVisualHeightPx - 5; 
             
@@ -370,6 +415,11 @@
             gameOverScreen.style.display = 'none';
             updateWaterLevelDisplay();
 
+            gameStartTime = Date.now();
+            clearInterval(timerIntervalId); 
+            timerIntervalId = setInterval(updateTimerDisplay, 1000); 
+            gameTimerElement.textContent = '00:00:00'; 
+
             cloudGenerationIntervalId = setInterval(createCloud, cloudInterval);
             gameDifficultyIntervalId = setInterval(increaseDifficulty, 60000);
             waterElement.addEventListener('click', handleWaterClick);
@@ -391,19 +441,27 @@
             gameRunning = false;
             clearInterval(cloudGenerationIntervalId);
             clearInterval(gameDifficultyIntervalId);
-            waterElement.removeEventListener('click', handleWaterClick);
+            clearInterval(timerIntervalId); 
 
             document.querySelectorAll('.cloud').forEach(cloud => {
                 cloud.remove();
             });
             document.querySelectorAll('.sun').forEach(sun => sun.remove());
 
+            const finalElapsedTimeMs = Date.now() - gameStartTime;
+            const totalSeconds = Math.floor(finalElapsedTimeMs / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            const formatTwoDigits = (num) => num.toString().padStart(2, '0');
+            const finalTimeFormatted = 
+                `${formatTwoDigits(hours)}:${formatTwoDigits(minutes)}:${formatTwoDigits(seconds)}`;
 
             if (won) {
-                gameOverText.textContent = "Gratulacje! Udało Ci się uratować stodołę!";
+                gameOverText.textContent = `Gratulacje! Udało Ci się uratować stodołę! Gra trwała: ${finalTimeFormatted}`;
                 playAgainButton.textContent = "Zagraj ponownie";
             } else {
-                gameOverText.textContent = "Niestety, stodoła została zatopiona!";
+                gameOverText.textContent = `Niestety, stodoła została zatopiona! Gra trwała: ${finalTimeFormatted}`;
                 playAgainButton.textContent = "Spróbuj ponownie";
             }
             gameOverScreen.style.display = 'flex';
@@ -411,7 +469,6 @@
 
         playAgainButton.addEventListener('click', startGame);
 
-        // Dodatkowe nasłuchiwanie na resize visualViewport - kluczowe dla mobilnych
         window.addEventListener('resize', resizeGameArea);
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', resizeGameArea);
